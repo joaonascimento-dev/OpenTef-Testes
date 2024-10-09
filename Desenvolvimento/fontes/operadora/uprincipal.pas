@@ -62,7 +62,7 @@ type
   public
     constructor Create;
     destructor Destroy; override;
-    function GetRecOpeTef(VP_Idex: integer): TRecOpeTef;
+    function GetRecOpeTef(VP_Index: integer): TRecOpeTef;
     function Count: integer;
     function Add(VP_ID: integer; VP_ConexaoID, VP_Tipo, VP_Chave, VP_IP: string): integer;
     function Remove(VP_ID: integer): integer;
@@ -635,7 +635,7 @@ begin
         F_Erro(StrToInt(VL_ComandoDados), VL_Retorno);
 
         VL_DescricaoErro := VL_Retorno;
-        Dispose(VL_Retorno);
+        F_MensagemDispose(VL_Retorno);
 
         ShowMessage('Erro: ' + VL_ComandoDados + #13 + 'Descrição: ' + VL_DescricaoErro);
       end;
@@ -1934,7 +1934,7 @@ end;
 procedure TForm1.BInicializaDllClick(Sender: TObject);
 begin
   {$IF DEFINED(WIN64)}
-           FMCom := LoadLibrary(PChar(ExtractFilePath(ParamStr(0)) + '..\..\mcom_lib\win64\mcom_lib.dll'));
+           FMComLib := LoadLibrary(PChar(ExtractFilePath(ParamStr(0)) + '..\..\mcom_lib\win64\mcom_lib.dll'));
   {$ENDIF}
 
   {$IF DEFINED(WIN32)}

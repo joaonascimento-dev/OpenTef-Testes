@@ -1,7 +1,7 @@
 unit funcoes;
 
 {$mode ObjFPC}{$H+}
-//{$RANGECHECKS OFF}
+{$RANGECHECKS OFF}
 
 interface
 
@@ -15,7 +15,7 @@ uses
   Math,
   typinfo,
 
-  {$IFNDEF PINPAD_LIB}
+  {$IF not(defined(PINPAD_LIB)) AND not(defined(MODULO_VBI)) AND not(defined(VBI_LIB))}
   ZDataset,
   ZConnection,
   DB,
@@ -89,6 +89,7 @@ type
     function AddTag(VP_Tag, VP_Dados: string): integer;
     function AddTag(VP_Tag: string; VP_Dados: integer): integer;
     function AddTag(VP_Posicao: integer; VP_Tag, VP_Dados: string): integer;
+    function DeleteTag(VP_Tag: string): integer;
     procedure Limpar;
     constructor Create;
   end;
@@ -194,10 +195,10 @@ type
 
   TTransacao = class
     fMensagem: TMensagem;
-    fcomando: string;
+    fComando: string;
     fTemporizador: TTemporizador;
     fAbortada: boolean;
-    frodando: boolean;
+    fRodando: boolean;
   private
     function GetErro: integer;
     function GetErroDescricao: string;
@@ -229,12 +230,13 @@ type
     ListaObjetos: TList;
     indice: integer;
   public
+    F_ArquivoLog:String;
     function objetoAdd(VP_Objeto: Pointer): integer;
     function objetoDelete(VP_ID: integer): integer;
     function objetoGet(VP_ID: integer): Pointer;
   end;
 
-{$IFNDEF PINPAD_LIB}
+  {$IF not(defined(PINPAD_LIB)) AND not(defined(MODULO_VBI)) AND not(defined(VBI_LIB))}
 procedure StrToRxMemData(VP_Dados: string; var VO_MemDataSet: TRxMemoryData);
 function RxMemDataToStr(VO_MemDataSet: TRxMemoryData): string;
 function ZQueryToStrRxMemData(VO_ZQuery: TZQuery): string;
@@ -249,6 +251,7 @@ procedure CriarChaveTerminal(VP_TipoChave: TTipoChave; VP_ValorChave: string; va
 {$IF DEFINED(OPEN_TEF) OR DEFINED(TEF_LIB) OR DEFINED(com_lib) or DEFINED(pinpad_lib) OR  DEFINED(MCOM)}
 procedure GravaLog(VP_Arquivo: string; VP_Modulo_ID: integer; VP_Tag_Comando, VP_Unit, VP_Linha, VP_Ocorrencia, VP_Tag: string; VP_CodigoErro: integer; VP_NivelLog: integer);
 function versao(var VO_Dados: PChar): integer; cdecl;
+function versaoAsString(): string;
 {$ENDIF }
 function CalculaDigito(Texto: string): string;
 function PermissaoToStr(VP_Permissao: TPermissao): string;
@@ -294,13 +297,13 @@ function copiaTagPosicao(VP_Posicao: integer; VP_TagEntrada, VO_TagSaida: TMensa
 procedure copiaTag(VP_TagEntrada, VP_TagSaida: TMensagem; VP_LimparTagSaida: boolean);
 
 
-function mensagemcreate_id(var VO_ID: integer): integer; cdecl;
-function mensagemcreate(var VP_Mensagem: Pointer): integer; cdecl;
+function mensagemcreate_id(VP_DFuncoes: Pointer; var VO_ID: integer): integer; cdecl;
+function mensagemcreate(var VO_Mensagem: Pointer): integer; cdecl;
 function mensagemcarregatags(VP_Mensagem: Pointer; VP_Dados: PChar): integer; cdecl;
 function mensagemcomando(VP_Mensagem: Pointer; var VO_Dados: PChar): integer; cdecl;
 function mensagemcomandodados(VP_Mensagem: Pointer; var VO_Dados: PChar): integer; cdecl;
 procedure mensagemfree(VP_Mensagem: Pointer); cdecl;
-function mensagemfree_id(VP_ID: integer): integer; cdecl;
+function mensagemfree_id(VP_DFuncoes: Pointer; VP_ID: integer): integer; cdecl;
 function mensagemaddtag(VP_Mensagem: Pointer; VP_Tag, VP_Dados: PChar): integer; cdecl;
 function mensagemaddcomando(VP_Mensagem: Pointer; VP_Tag, VP_Dados: PChar): integer; cdecl;
 function mensagemaddtagposicao(VP_Mensagem: Pointer; VP_Posicao: integer; VP_Tag, VP_Dados: PChar): integer; cdecl;
@@ -319,7 +322,6 @@ procedure HexToByte(Value: string; var VO_Retorno: TLBytes);
 function CriaChave(Tamanho: int64): string;
 
 var
-  DFuncoes: TDFuncoes;
 
   VF_Sequencia: longint;
   VF_CriticoLog: TRTLCriticalSection;
@@ -335,7 +337,7 @@ const
 
 implementation
 
-{$IFNDEF PINPAD_LIB}
+{$IF not(defined(PINPAD_LIB)) AND not(defined(MODULO_VBI)) AND not(defined(VBI_LIB))}
 
 function GerarQRCodeAsString(QrCode: string): string;
 var
@@ -842,22 +844,23 @@ begin
   Sm.Free;
 end;
 
-function mensagemcreate_id(var VO_ID: integer): integer; cdecl;
+function mensagemcreate_id(VP_DFuncoes: Pointer; var VO_ID: integer): integer; cdecl;
 var
   VL_Mensagem: ^TMensagem;
 begin
+  VL_Mensagem:=nil;
   Result := mensagemcreate(VL_Mensagem);
 
   if Result <> 0 then
     Exit;
 
-  VO_ID := DFuncoes.objetoAdd(VL_Mensagem);
+  VO_ID := TDFuncoes(VP_DFuncoes).objetoAdd(VL_Mensagem);
 end;
 
-function mensagemcreate(var VP_Mensagem: Pointer): integer; cdecl;
+function mensagemcreate(var VO_Mensagem: Pointer): integer; cdecl;
 begin
   Result := 0;
-  Pointer(VP_Mensagem) := pointer(TMensagem.Create);
+  Pointer(VO_Mensagem) := pointer(TMensagem.Create);
 end;
 
 
@@ -906,12 +909,12 @@ begin
 end;
 
 
-function mensagemfree_id(VP_ID: integer): integer; cdecl;
+function mensagemfree_id(VP_DFuncoes: Pointer;VP_ID: integer): integer; cdecl;
 var
   VL_Mensagem: ^Tmensagem;
 begin
   try
-    VL_Mensagem := DFuncoes.objetoGet(VP_ID);
+    VL_Mensagem := TDFuncoes(VP_DFuncoes).objetoGet(VP_ID);
     if not Assigned(VL_Mensagem) then
     begin
       Result := 1;
@@ -919,7 +922,7 @@ begin
     end;
 
     VL_Mensagem^.Free;
-    Result := DFuncoes.objetoDelete(VP_ID);
+    Result := TDFuncoes(VP_DFuncoes).objetoDelete(VP_ID);
   except
     on e: Exception do
     begin
@@ -1014,11 +1017,10 @@ end;
 procedure mensagemdispose(VP_PChar: PChar); cdecl;
 begin
   if not Assigned(VP_PChar) then
-     Exit;
+    Exit;
 
   if MemSize(VP_PChar) <= 0 then
-     Exit;
-
+    Exit;
   StrDispose(VP_PChar);
 end;
 
@@ -1046,11 +1048,9 @@ begin
       3: VL_String := 'MODELO PINPAD NÃO INFORMADO';
       4: VL_String := 'MODELO PINPAD NÃO SUPORTADO';
       5: VL_String := 'FALHA NA CONEXÃO COM PINPAD';
-      6: VL_String :=
-          'PINPAD RETORNOU FALHA(CONSULTA Nº DA FALHA NO RETORNO AUXILIAR)';
+      6: VL_String :='PINPAD RETORNOU FALHA(CONSULTA Nº DA FALHA NO RETORNO AUXILIAR)';
       7: VL_String := 'DLL OU S.O DO PINPAD NÃO ENCONTRADA';
-      8: VL_String :=
-          'DLL OU S.O DO PINPAD NÃO COMPATÍVEL(VERIFIQUE 32 OU 64 BITS)';
+      8: VL_String :='DLL OU S.O DO PINPAD NÃO COMPATÍVEL(VERIFIQUE 32 OU 64 BITS)';
       9: VL_String := 'HOST  NÃO INFORMADO PARA O TEF';
       10: VL_String := 'HOST NÃO COMPATÍVEL PARA O TEF';
       11: VL_String := 'PORTA NÃO INFORMADA PARA O TEF';
@@ -1059,8 +1059,7 @@ begin
       14: VL_String := 'VERSÃO_COMUNICAÇÃO NÃO COMPATÍVEL PARA O TEF';
       15: VL_String := 'CHAVE NÃO INFORMADA PARA O TEF';
       16: VL_String := 'CHAVE NÃO COMPATÍVEL PARA O TEF';
-      17: VL_String :=
-          'VERSÃO DLL DO TEF NÃO COMPATÍVEL (SUGERE ATUALIZAÇÃO)';
+      17: VL_String :='VERSÃO DLL DO TEF NÃO COMPATÍVEL (SUGERE ATUALIZAÇÃO)';
       18: VL_String := 'PACOTE COM A PRIMEIRA TAG DIFERENTE DE ‘0000’';
       19: VL_String := 'ERRO O TAMANHO DO PACOTE NÃO PODE SER ZERO';
       20: VL_String := 'ERRO O TAMANHO DO PACOTE DIFERENTE DO TAMANHO DA MENSAGEM';
@@ -1073,8 +1072,7 @@ begin
       27: VL_String := 'ERRO NÃO EXISTE PACOTE PARA A FUNÇÃO ADD DA TAG';
       28: VL_String := 'ERRO, PARÂMETRO NULO OU DIFERENTE DA ESTRUTURA DA TAG';
       29: VL_String := 'ERRO TAG NÃO LOCALIZADA NO PACOTE DA FUNÇÃO GET DA TAG';
-      30: VL_String :=
-          'DADOS DO PACOTE MAL FORMATADO OU INCOMPATÍVEL, IMPOSSÍVEL DE LER';
+      30: VL_String :='DADOS DO PACOTE MAL FORMATADO OU INCOMPATÍVEL, IMPOSSÍVEL DE LER';
       31: VL_String := 'CHAVE PUBLICA NÃO LOCALIZADA';
       32: VL_String := 'PROBLEMA NAS TROCAS DE CHAVES NO CONECTAR';
       33: VL_String := 'SOCKET DO SERVIDOR VINCULADO ESTA DESCONECTADO';
@@ -1093,17 +1091,14 @@ begin
       46: VL_String := 'ERRO NA ALTERAÇÃO DO REGISTRO';
       47: VL_String := 'DADOS INFORMADO NÃO PODE SER ZERO';
       48: VL_String := 'TABELA SEM REGISTRO NO BANCO DE DADOS';
-      49: VL_String :=
-          'DADOS CHAVES PARA O CADASTRO NÃO PODEM SOFRER ALTERAÇÃO';
+      49: VL_String :='DADOS CHAVES PARA O CADASTRO NÃO PODEM SOFRER ALTERAÇÃO';
       50: VL_String := 'BIBLIOTECA DO PINPAD NÃO FOI POSSIVEL CARREGAR';
       51: VL_String := 'TIPO DE LEITURA DE CARTÃO NÃO SUPORTADO';
       52: VL_String := 'CAMPO OBRIGATÓRIO NÃO PODE SER NULO';
-      53: VL_String :=
-          'NÃO FOI POSSIVEL ENVIAR A MENSAGEM DE RETORNO PARA O ID INFORMADO';
+      53: VL_String :='NÃO FOI POSSIVEL ENVIAR A MENSAGEM DE RETORNO PARA O ID INFORMADO';
       54: VL_String := 'NÃO FOI POSSIVEL INICIALIZAR O MODULO';
       55: VL_String := 'ERRO NA PESQUISA DA TABELA';
-      56: VL_String :=
-          'NÃO FOI ENCONTRADO NENHUMA CONFIGURAÇÃO DE MENU DE CAIXA';
+      56: VL_String :='NÃO FOI ENCONTRADO NENHUMA CONFIGURAÇÃO DE MENU DE CAIXA';
       57: VL_String := 'ERRO NO FLUXO DAS TRANSAÇÕES DA TAG 0018';
       58: VL_String := 'ERRO AO CRIAR A TRANSACAO';
       59: VL_String := 'ERRO AO PEGAR O STATUS DA TRANSACAO';
@@ -1120,22 +1115,18 @@ begin
       70: VL_String := 'Modulo config não carregado para incluir solicitação';
       71: VL_String := 'NAO FOI POSSIVEL ATUALIZAR A TABELA DE MENUS';
       72: VL_String := 'MENU JA ESTAVA CADASTRADO PARA OUTRO MODULO';
-      73: VL_String :=
-          'MENU NÃO ESTA NA LISTA DE MENUS OFICIAIS HABILITADOS USE TAG INICIO “FF”';
+      73: VL_String := 'MENU NÃO ESTA NA LISTA DE MENUS OFICIAIS HABILITADOS USE TAG INICIO “FF”';
       74: VL_String := 'BIN inválido';
       75: VL_String := 'Tag do botao do menu inválido';
       76: VL_String := 'Texto do botao do menu inválido';
       77: VL_String := 'pinpad_lib  NÃO CARREGADO';
       78: VL_String := 'COMANDO NAO IMPLEMENTADO PELO PINPD';
-      79: VL_String :=
-          'Não foi possível achar uma operadora para processar o cartão';
-      80: VL_String :=
-          'Essa solicitação de aprovação não esta em conformidade';
+      79: VL_String := 'Não foi possível achar uma operadora para processar o cartão';
+      80: VL_String := 'Essa solicitação de aprovação não esta em conformidade';
       81: VL_String := 'ESSA CONEXAO NÃO PERMITE APROVAÇÃO';
       82: VL_String := 'ERRO NA EXCLUSÃO DO REGISTRO';
       83: VL_String := 'A CONEXÃO FOI DESCONECTA INESPERADAMENTE';
-      84: VL_String :=
-          'A OPERADORA/ADQUIRENTE EXIGE CRIPTOGRAFIA, MAS NÃO ENVIOU AS CHAVES';
+      84: VL_String := 'A OPERADORA/ADQUIRENTE EXIGE CRIPTOGRAFIA, MAS NÃO ENVIOU AS CHAVES';
       85: VL_String := 'Erro de tempo em capturar a senha no pinpad';
       86: VL_String := 'Erro ao cancelar uma transação';
       87: VL_String := 'Erro na exclusão, TAG oficial não pode ser excluida';
@@ -1153,39 +1144,47 @@ begin
       99: VL_String := 'Conexão não encontrada';
       100: VL_String := 'Conexão não está estabelecida';
       101: VL_String := 'Comando inválido para o OPENTEF';
-      102: VL_String :=
-          'DADOS INFORMADOS DIFERENTE DOS DADOS DA TABELA NO BANCO DE DADOS';
-      103: VL_String :=
-          'NÃO FOI POSSÍVEL CONECTAR AO SERVIDOR ABERTURA SOCKET COM EXCECAO';
+      102: VL_String := 'DADOS INFORMADOS DIFERENTE DOS DADOS DA TABELA NO BANCO DE DADOS';
+      103: VL_String := 'NÃO FOI POSSÍVEL CONECTAR AO SERVIDOR ABERTURA SOCKET COM EXCECAO';
       104: VL_String := 'NÃO FOI ENCONTRADA OS DADOS DO ARQUIVO';
       105: VL_String := 'Erro insperado no servidor';
       106: VL_String := 'Identificação não localizada';
       107: VL_String := 'Identificação não informada';
       108: VL_String := 'Loja ja pertence a outra Multi-loja';
-      109: VL_String :=
-          'Chave de comunicação não informada para uma transação criptografa';
+      109: VL_String := 'Chave de comunicação não informada para uma transação criptografa';
       110: VL_String := 'O Modulo não foi carregado';
       111: VL_String := 'O Modulo não está logado';
       112: VL_String := 'A biblioteca Tef já foi inicializada';
       113: VL_String := 'A função de retorno para o cliente não foi informada';
       114: VL_String := 'A função de solicita dados do pdv não foi informada';
-      115: VL_String :=
-          'A função de solicita dados da transação não foi informada';
+      115: VL_String := 'A função de solicita dados da transação não foi informada';
       116: VL_String := 'A função de impressão não foi informada';
       117: VL_String := 'A função de mostra menu não foi informada';
       118: VL_String := 'A função de mensagem ao operador não foi informada';
       119: VL_String := 'ERRO AO PEGAR A TAG DA TRANSACAO';
       120: VL_String := 'Não é possível buscar essa tag pois ela é protegida';
-      121: VL_String :=
-          'Não é possível realizar a conciliacao, pois a versão está desatualizada';
+      121: VL_String := 'Não é possível realizar a conciliacao, pois a versão está desatualizada';
       122: VL_String := 'ESSA CONEXÃO NÃO PERMITE CONCILIAÇÃO';
-      123: VL_String :=
-          'Não é possível enviar mais de uma conciliacao para a mesma operadora';
+      123: VL_String := 'Não é possível enviar mais de uma conciliacao para a mesma operadora';
       124: VL_String := 'Erro insperado na lib do pinpad';
       125: VL_String := 'Ponteiro do tef informado está nulo';
       126: VL_String := 'Ponteiro do mcom informado está nulo';
       127: VL_String := 'A função strDispose não foi informada';
       128: VL_String := 'A transação foi abortada';
+      129: VL_String := 'A biblioteca Com já foi inicializada';
+      130: VL_String := 'Ponteiro do com informado está nulo';
+      131: VL_String := 'A biblioteca Tef já foi finalizada';
+      132: VL_String := 'A biblioteca Com já foi finalizada';
+      133: VL_String := 'PDV não habilitado para essa operadora';
+      134: VL_String := 'Essa conexão não permite realizar venda';
+      135: VL_String := 'Host do tef informado no cadastro não é válido';
+      136: VL_String := 'Porta do tef informado no cadastro não é válido';
+      137: VL_String := 'Estabelecimento do tef informado no cadastro não é válido';
+      138: VL_String := 'Loja do tef informado no cadastro não é válido';
+      139: VL_String := 'Terminal do informado no cadastro tef não é válido';
+      140: VL_String := 'Aplicação do informado no cadastro tef não é válido';
+      141: VL_String := 'vbi_lib não carregado';
+      142: VL_String := 'Ponteiro do vbi informado está nulo';
       else
       begin
         Result := 1;
@@ -1475,7 +1474,7 @@ begin
   fcomando := VP_Comando;
   fMensagem := TMensagem.Create;
   fAbortada := False;
-  frodando := true;
+  frodando := True;
 
   if VP_TransacaoString <> '' then
   begin
@@ -1498,7 +1497,7 @@ end;
 
 destructor TTransacao.Destroy;
 begin
-  frodando := false;
+  frodando := False;
   fMensagem.Free;
   fTemporizador.Free;
   inherited Destroy;
@@ -1599,6 +1598,7 @@ end;
 procedure GravaLog(VP_Arquivo: string; VP_Modulo_ID: integer; VP_Tag_Comando, VP_Unit, VP_Linha, VP_Ocorrencia, VP_Tag: string; VP_CodigoErro: integer; VP_NivelLog: integer);
 var
   VL_Arquivo: TextFile;
+  VL_File: TFileStream;
 begin
   if VP_Arquivo = '' then
     exit;
@@ -1622,6 +1622,17 @@ begin
 
     CloseFile(VL_Arquivo);
 
+    VL_File := TFileStream.Create(VP_Arquivo, fmOpenRead);
+    if VL_File.Size > 10000000 then
+    begin
+      VL_File.Free;
+      DeleteFile(VP_Arquivo + '.old');
+      RenameFile(VP_Arquivo, VP_Arquivo + '.old');
+      DeleteFile(VP_Arquivo);
+    end
+    else
+      VL_File.Free;
+
   finally
     LeaveCriticalSection(VF_CriticoLog);
   end;
@@ -1638,6 +1649,12 @@ begin
     Result := 1;
   end;
 
+end;
+
+function versaoAsString(): string;
+begin
+    Result := '';
+    Result := IntToStr(C_Versao[0]) + '.' + IntToStr(C_Versao[1]) + '.' + IntToStr(C_Versao[2]);
 end;
 
 {$ENDIF}
@@ -2260,6 +2277,22 @@ begin
   AddTag(Formata(IntToStr(VP_Posicao), '0', 10, False) + VP_Tag, VP_Dados);
 end;
 
+function TMensagem.DeleteTag(VP_Tag: string): integer;
+var
+  VL_I: integer;
+begin
+  Result := 29;
+
+  for VL_I := 0 to length(fTags) - 1 do
+  begin
+    if fTags[VL_I].Tag = VP_Tag then
+    begin
+      Delete(fTags,VL_I,1);
+      Exit;
+    end;
+  end;
+end;
+
 procedure TMensagem.Limpar;
 begin
   SetLength(fTags, 0);
@@ -2439,51 +2472,49 @@ begin
 
     (pos(' SELECT ', VL_String) = 0) and (pos('SELECT ', VL_String) = 0) and (pos('(SELECT:', VL_String) = 0) and (pos('(SELECT ', VL_String) = 0) and
     (pos('(SELECT' + #13, VL_String) = 0) and (pos('(SELECT--', VL_String) = 0) and (pos('(SELECT/', VL_String) = 0) and (pos('(SELECT(', VL_String) = 0) and
-    (pos(' SELECT' + #13, VL_String) = 0) and (pos(' (SELECT' + #13, VL_String) = 0) and (pos(#$A + 'SELECT(', VL_String) = 0) and
-    (pos(#$A + 'SELECT' + #13, VL_String) = 0) and (pos(#$A + 'SELECT ' + #13, VL_String) = 0) and (pos(#$A + 'SELECT ', VL_String) = 0) and
-    (pos(#$A + 'SELECT/', VL_String) = 0) and (pos(#$A + 'SELECT:', VL_String) = 0) and (pos(' SELECT:', VL_String) = 0) and (pos(' SELECT(', VL_String) = 0) and
-    (pos('/SELECT', VL_String) = 0) and (pos('SELECT/', VL_String) = 0) and (pos('(SELECT ', VL_String) = 0) and (pos('SELECT--', VL_String) = 0) and
-    (pos('SELECT --', VL_String) = 0) and (pos(' SELECT--', VL_String) = 0) and (pos(' DELETE ', VL_String) = 0) and (pos('DELETE ', VL_String) = 0) and
-    (pos('(DELETE:', VL_String) = 0) and (pos('(DELETE ', VL_String) = 0) and (pos('(DELETE' + #13, VL_String) = 0) and (pos('(DELETE--', VL_String) = 0) and
-    (pos('(DELETE/', VL_String) = 0) and (pos('(DELETE(', VL_String) = 0) and (pos(' DELETE' + #13, VL_String) = 0) and (pos('DELETE' + #13, VL_String) = 0) and
-    (pos('DELETE ' + #13, VL_String) = 0) and (pos(' (DELETE' + #13, VL_String) = 0) and (pos(#$A + 'DELETE(', VL_String) = 0) and
-    (pos(#$A + 'DELETE' + #13, VL_String) = 0) and (pos(#$A + 'DELETE ', VL_String) = 0) and (pos(#$A + 'DELETE/', VL_String) = 0) and
-    (pos(#$A + 'DELETE:', VL_String) = 0) and (pos(' DELETE:', VL_String) = 0) and (pos(' DELETE(', VL_String) = 0) and (pos('/DELETE', VL_String) = 0) and
-    (pos('DELETE/', VL_String) = 0) and (pos('(DELETE ', VL_String) = 0) and (pos('DELETE--', VL_String) = 0) and (pos('DELETE --', VL_String) = 0) and
-    (pos(' DELETE--', VL_String) = 0) and (pos(' UPDATE ', VL_String) = 0) and (pos('UPDATE ', VL_String) = 0) and (pos('(UPDATE:', VL_String) = 0) and
-    (pos('(UPDATE ', VL_String) = 0) and (pos('(UPDATE' + #13, VL_String) = 0) and (pos('(UPDATE--', VL_String) = 0) and (pos('(UPDATE/', VL_String) = 0) and
-    (pos('(UPDATE(', VL_String) = 0) and (pos(' UPDATE' + #13, VL_String) = 0) and (pos(' (UPDATE' + #13, VL_String) = 0) and (pos('UPDATE' + #13, VL_String) = 0) and
-    (pos('UPDATE ' + #13, VL_String) = 0) and (pos(#$A + 'UPDATE(', VL_String) = 0) and (pos(#$A + 'UPDATE' + #13, VL_String) = 0) and
-    (pos(#$A + 'UPDATE ' + #13, VL_String) = 0) and (pos(#$A + 'UPDATE ', VL_String) = 0) and (pos(#$A + 'UPDATE/', VL_String) = 0) and
-    (pos(#$A + 'UPDATE:', VL_String) = 0) and (pos(' UPDATE:', VL_String) = 0) and (pos(' UPDATE(', VL_String) = 0) and (pos('/UPDATE', VL_String) = 0) and
-    (pos('UPDATE/', VL_String) = 0) and (pos('UPDATE /', VL_String) = 0) and (pos('(UPDATE ', VL_String) = 0) and (pos('UPDATE--', VL_String) = 0) and
-    (pos('UPDATE --', VL_String) = 0) and (pos(' UPDATE--', VL_String) = 0) and (pos(' INSERT ', VL_String) = 0) and (pos('INSERT ', VL_String) = 0) and
-    (pos('(INSERT:', VL_String) = 0) and (pos('(INSERT ', VL_String) = 0) and (pos('(INSERT' + #13, VL_String) = 0) and (pos('(INSERT--', VL_String) = 0) and
-    (pos('(INSERT/', VL_String) = 0) and (pos('(INSERT(', VL_String) = 0) and (pos(' INSERT' + #13, VL_String) = 0) and (pos(' (INSERT' + #13, VL_String) = 0) and
-    (pos('INSERT' + #13, VL_String) = 0) and (pos('INSERT ' + #13, VL_String) = 0) and (pos(#$A + 'INSERT(', VL_String) = 0) and (pos(#$A + 'INSERT' + #13, VL_String) = 0) and
-    (pos(#$A + 'INSERT ', VL_String) = 0) and (pos(#$A + 'INSERT/', VL_String) = 0) and (pos(#$A + 'INSERT:', VL_String) = 0) and
-    (pos(' INSERT:', VL_String) = 0) and (pos(' INSERT(', VL_String) = 0) and (pos('/INSERT', VL_String) = 0) and (pos('INSERT/', VL_String) = 0) and
-    (pos('(INSERT ', VL_String) = 0) and (pos('INSERT--', VL_String) = 0) and (pos('INSERT --', VL_String) = 0) and (pos(' INSERT--', VL_String) = 0) and
-    (pos(' DROP ', VL_String) = 0) and (pos('DROP ', VL_String) = 0) and (pos('(DROP:', VL_String) = 0) and (pos('(DROP ', VL_String) = 0) and
-    (pos('(DROP' + #13, VL_String) = 0) and (pos('(DROP--', VL_String) = 0) and (pos('(DROP/', VL_String) = 0) and (pos('(DROP(', VL_String) = 0) and
-    (pos(' DROP' + #13, VL_String) = 0) and (pos(' (DROP' + #13, VL_String) = 0) and (pos('DROP' + #13, VL_String) = 0) and (pos('DROP ' + #13, VL_String) = 0) and
-    (pos(#$A + 'DROP(', VL_String) = 0) and (pos(#$A + 'DROP' + #13, VL_String) = 0) and (pos(#$A + 'DROP ', VL_String) = 0) and (pos(#$A + 'DROP/', VL_String) = 0) and
-    (pos(#$A + 'DROP:', VL_String) = 0) and (pos(' DROP:', VL_String) = 0) and (pos(' DROP(', VL_String) = 0) and (pos('/DROP', VL_String) = 0) and
-    (pos('DROP/', VL_String) = 0) and (pos('(DROP ', VL_String) = 0) and (pos('DROP--', VL_String) = 0) and (pos('DROP --', VL_String) = 0) and
-    (pos(' DROP--', VL_String) = 0) and (pos(' ALTER ', VL_String) = 0) and (pos('ALTER ', VL_String) = 0) and (pos('(ALTER:', VL_String) = 0) and
-    (pos('(ALTER ', VL_String) = 0) and (pos('(ALTER' + #13, VL_String) = 0) and (pos('(ALTER--', VL_String) = 0) and (pos('(ALTER/', VL_String) = 0) and
-    (pos('(ALTER(', VL_String) = 0) and (pos(' ALTER' + #13, VL_String) = 0) and (pos(' (ALTER' + #13, VL_String) = 0) and (pos('ALTER' + #13, VL_String) = 0) and
-    (pos('ALTER ' + #13, VL_String) = 0) and (pos(#$A + 'ALTER(', VL_String) = 0) and (pos(#$A + 'ALTER' + #13, VL_String) = 0) and
+    (pos(' SELECT' + #13, VL_String) = 0) and (pos(' (SELECT' + #13, VL_String) = 0) and (pos(#$A + 'SELECT(', VL_String) = 0) and (pos(#$A + 'SELECT' + #13, VL_String) = 0) and
+    (pos(#$A + 'SELECT ' + #13, VL_String) = 0) and (pos(#$A + 'SELECT ', VL_String) = 0) and (pos(#$A + 'SELECT/', VL_String) = 0) and
+    (pos(#$A + 'SELECT:', VL_String) = 0) and (pos(' SELECT:', VL_String) = 0) and (pos(' SELECT(', VL_String) = 0) and (pos('/SELECT', VL_String) = 0) and
+    (pos('SELECT/', VL_String) = 0) and (pos('(SELECT ', VL_String) = 0) and (pos('SELECT--', VL_String) = 0) and (pos('SELECT --', VL_String) = 0) and
+    (pos(' SELECT--', VL_String) = 0) and (pos(' DELETE ', VL_String) = 0) and (pos('DELETE ', VL_String) = 0) and (pos('(DELETE:', VL_String) = 0) and
+    (pos('(DELETE ', VL_String) = 0) and (pos('(DELETE' + #13, VL_String) = 0) and (pos('(DELETE--', VL_String) = 0) and (pos('(DELETE/', VL_String) = 0) and
+    (pos('(DELETE(', VL_String) = 0) and (pos(' DELETE' + #13, VL_String) = 0) and (pos('DELETE' + #13, VL_String) = 0) and (pos('DELETE ' + #13, VL_String) = 0) and
+    (pos(' (DELETE' + #13, VL_String) = 0) and (pos(#$A + 'DELETE(', VL_String) = 0) and (pos(#$A + 'DELETE' + #13, VL_String) = 0) and
+    (pos(#$A + 'DELETE ', VL_String) = 0) and (pos(#$A + 'DELETE/', VL_String) = 0) and (pos(#$A + 'DELETE:', VL_String) = 0) and (pos(' DELETE:', VL_String) = 0) and
+    (pos(' DELETE(', VL_String) = 0) and (pos('/DELETE', VL_String) = 0) and (pos('DELETE/', VL_String) = 0) and (pos('(DELETE ', VL_String) = 0) and
+    (pos('DELETE--', VL_String) = 0) and (pos('DELETE --', VL_String) = 0) and (pos(' DELETE--', VL_String) = 0) and (pos(' UPDATE ', VL_String) = 0) and
+    (pos('UPDATE ', VL_String) = 0) and (pos('(UPDATE:', VL_String) = 0) and (pos('(UPDATE ', VL_String) = 0) and (pos('(UPDATE' + #13, VL_String) = 0) and
+    (pos('(UPDATE--', VL_String) = 0) and (pos('(UPDATE/', VL_String) = 0) and (pos('(UPDATE(', VL_String) = 0) and (pos(' UPDATE' + #13, VL_String) = 0) and
+    (pos(' (UPDATE' + #13, VL_String) = 0) and (pos('UPDATE' + #13, VL_String) = 0) and (pos('UPDATE ' + #13, VL_String) = 0) and (pos(#$A + 'UPDATE(', VL_String) = 0) and
+    (pos(#$A + 'UPDATE' + #13, VL_String) = 0) and (pos(#$A + 'UPDATE ' + #13, VL_String) = 0) and (pos(#$A + 'UPDATE ', VL_String) = 0) and
+    (pos(#$A + 'UPDATE/', VL_String) = 0) and (pos(#$A + 'UPDATE:', VL_String) = 0) and (pos(' UPDATE:', VL_String) = 0) and (pos(' UPDATE(', VL_String) = 0) and
+    (pos('/UPDATE', VL_String) = 0) and (pos('UPDATE/', VL_String) = 0) and (pos('UPDATE /', VL_String) = 0) and (pos('(UPDATE ', VL_String) = 0) and
+    (pos('UPDATE--', VL_String) = 0) and (pos('UPDATE --', VL_String) = 0) and (pos(' UPDATE--', VL_String) = 0) and (pos(' INSERT ', VL_String) = 0) and
+    (pos('INSERT ', VL_String) = 0) and (pos('(INSERT:', VL_String) = 0) and (pos('(INSERT ', VL_String) = 0) and (pos('(INSERT' + #13, VL_String) = 0) and
+    (pos('(INSERT--', VL_String) = 0) and (pos('(INSERT/', VL_String) = 0) and (pos('(INSERT(', VL_String) = 0) and (pos(' INSERT' + #13, VL_String) = 0) and
+    (pos(' (INSERT' + #13, VL_String) = 0) and (pos('INSERT' + #13, VL_String) = 0) and (pos('INSERT ' + #13, VL_String) = 0) and (pos(#$A + 'INSERT(', VL_String) = 0) and
+    (pos(#$A + 'INSERT' + #13, VL_String) = 0) and (pos(#$A + 'INSERT ', VL_String) = 0) and (pos(#$A + 'INSERT/', VL_String) = 0) and
+    (pos(#$A + 'INSERT:', VL_String) = 0) and (pos(' INSERT:', VL_String) = 0) and (pos(' INSERT(', VL_String) = 0) and (pos('/INSERT', VL_String) = 0) and
+    (pos('INSERT/', VL_String) = 0) and (pos('(INSERT ', VL_String) = 0) and (pos('INSERT--', VL_String) = 0) and (pos('INSERT --', VL_String) = 0) and
+    (pos(' INSERT--', VL_String) = 0) and (pos(' DROP ', VL_String) = 0) and (pos('DROP ', VL_String) = 0) and (pos('(DROP:', VL_String) = 0) and
+    (pos('(DROP ', VL_String) = 0) and (pos('(DROP' + #13, VL_String) = 0) and (pos('(DROP--', VL_String) = 0) and (pos('(DROP/', VL_String) = 0) and
+    (pos('(DROP(', VL_String) = 0) and (pos(' DROP' + #13, VL_String) = 0) and (pos(' (DROP' + #13, VL_String) = 0) and (pos('DROP' + #13, VL_String) = 0) and
+    (pos('DROP ' + #13, VL_String) = 0) and (pos(#$A + 'DROP(', VL_String) = 0) and (pos(#$A + 'DROP' + #13, VL_String) = 0) and (pos(#$A + 'DROP ', VL_String) = 0) and
+    (pos(#$A + 'DROP/', VL_String) = 0) and (pos(#$A + 'DROP:', VL_String) = 0) and (pos(' DROP:', VL_String) = 0) and (pos(' DROP(', VL_String) = 0) and
+    (pos('/DROP', VL_String) = 0) and (pos('DROP/', VL_String) = 0) and (pos('(DROP ', VL_String) = 0) and (pos('DROP--', VL_String) = 0) and
+    (pos('DROP --', VL_String) = 0) and (pos(' DROP--', VL_String) = 0) and (pos(' ALTER ', VL_String) = 0) and (pos('ALTER ', VL_String) = 0) and
+    (pos('(ALTER:', VL_String) = 0) and (pos('(ALTER ', VL_String) = 0) and (pos('(ALTER' + #13, VL_String) = 0) and (pos('(ALTER--', VL_String) = 0) and
+    (pos('(ALTER/', VL_String) = 0) and (pos('(ALTER(', VL_String) = 0) and (pos(' ALTER' + #13, VL_String) = 0) and (pos(' (ALTER' + #13, VL_String) = 0) and
+    (pos('ALTER' + #13, VL_String) = 0) and (pos('ALTER ' + #13, VL_String) = 0) and (pos(#$A + 'ALTER(', VL_String) = 0) and (pos(#$A + 'ALTER' + #13, VL_String) = 0) and
     (pos(#$A + 'ALTER ', VL_String) = 0) and (pos(#$A + 'ALTER/', VL_String) = 0) and (pos(#$A + 'ALTER:', VL_String) = 0) and (pos(' ALTER:', VL_String) = 0) and
     (pos(' ALTER(', VL_String) = 0) and (pos('/ALTER', VL_String) = 0) and (pos('ALTER/', VL_String) = 0) and (pos('(ALTER ', VL_String) = 0) and
     (pos('ALTER--', VL_String) = 0) and (pos('ALTER --', VL_String) = 0) and (pos(' ALTER--', VL_String) = 0) and (pos(' CREATE ', VL_String) = 0) and
     (pos('CREATE ', VL_String) = 0) and (pos('(CREATE:', VL_String) = 0) and (pos('(CREATE ', VL_String) = 0) and (pos('(CREATE' + #13, VL_String) = 0) and
     (pos('(CREATE--', VL_String) = 0) and (pos('(CREATE/', VL_String) = 0) and (pos('(CREATE(', VL_String) = 0) and (pos(' CREATE' + #13, VL_String) = 0) and
-    (pos(' (CREATE' + #13, VL_String) = 0) and (pos('CREATE' + #13, VL_String) = 0) and (pos('CREATE ' + #13, VL_String) = 0) and
-    (pos(#$A + 'CREATE(', VL_String) = 0) and (pos(#$A + 'CREATE' + #13, VL_String) = 0) and (pos(#$A + 'CREATE ', VL_String) = 0) and
-    (pos(#$A + 'CREATE/', VL_String) = 0) and (pos(#$A + 'CREATE:', VL_String) = 0) and (pos(' CREATE:', VL_String) = 0) and (pos(' CREATE(', VL_String) = 0) and
-    (pos('/CREATE', VL_String) = 0) and (pos('CREATE/', VL_String) = 0) and (pos('(CREATE ', VL_String) = 0) and (pos('CREATE--', VL_String) = 0) and
-    (pos('CREATE --', VL_String) = 0) and (pos(' CREATE--', VL_String) = 0)) then
+    (pos(' (CREATE' + #13, VL_String) = 0) and (pos('CREATE' + #13, VL_String) = 0) and (pos('CREATE ' + #13, VL_String) = 0) and (pos(#$A + 'CREATE(', VL_String) = 0) and
+    (pos(#$A + 'CREATE' + #13, VL_String) = 0) and (pos(#$A + 'CREATE ', VL_String) = 0) and (pos(#$A + 'CREATE/', VL_String) = 0) and
+    (pos(#$A + 'CREATE:', VL_String) = 0) and (pos(' CREATE:', VL_String) = 0) and (pos(' CREATE(', VL_String) = 0) and (pos('/CREATE', VL_String) = 0) and
+    (pos('CREATE/', VL_String) = 0) and (pos('(CREATE ', VL_String) = 0) and (pos('CREATE--', VL_String) = 0) and (pos('CREATE --', VL_String) = 0) and (pos(' CREATE--', VL_String) = 0)) then
 
     Result := 'OK'
   else

@@ -1390,6 +1390,7 @@ object FCadPdv: TFCadPdv
           'TODOS'
           'COMANDO'
           'MENU_PDV'
+          'MENU_PDV_011C'
           'MENU_OPERACIONAL'
           'PINPAD_FUNC'
         )

@@ -14,7 +14,9 @@ exports
       solicitacaoblocante,
       opentefstatus,
       versao,
-      alterarnivellog;
+      alterarnivellog,
+      mensagemerro,
+      mensagemdispose;
 
 begin
 end.
